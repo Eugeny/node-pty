@@ -1,10 +1,10 @@
 {
-  "name": "node-pty",
-  "description": "Fork pseudoterminals in Node.JS",
+  "name": "node-pty-tmp",
+  "description": "A Temporary Fork of node-pty",
   "author": {
     "name": "Daniel Imms"
   },
-  "version": "0.7.0",
+  "version": "0.7.1",
   "license": "MIT",
   "main": "./lib/index.js",
   "types": "./lib/index.d.ts",
