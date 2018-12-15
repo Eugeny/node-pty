@@ -88,7 +88,21 @@ export class WindowsPtyAgent {
     this._inSocket.writable = false;
     this._outSocket.readable = false;
     this._outSocket.writable = false;
+    const processList: number[] = pty.getProcessList(this._pid);
+    // Tell the agent to kill the pty, this releases handles to the process
     pty.kill(this._pid, this._innerPidHandle);
+    // Since pty.kill will kill most processes by itself and process IDs can be
+    // reused as soon as all handles to them are dropped, we want to immediately
+    // kill the entire console process list. If we do not force kill all
+    // processes here, node servers in particular seem to become detached and
+    // remain running (see Microsoft/vscode#26807).
+    processList.forEach(pid => {
+      try {
+        process.kill(pid);
+      } catch (e) {
+        // Ignore if process cannot be found (kill ESRCH error)
+      }
+    });
   }
 
   public getExitCode(): number {
@@ -114,10 +128,15 @@ export function argsToCommandLine(file: string, args: ArgvOrCommandLine): string
       result += ' ';
     }
     const arg = argv[argIndex];
+    // if it is empty or it contains whitespace and is not already quoted
+    const hasLopsidedEnclosingQuote = xOr((arg[0] !== '"'), (arg[arg.length - 1] !== '"'));
+    const hasNoEnclosingQuotes = ((arg[0] !== '"') && (arg[arg.length - 1] !== '"'));
     const quote =
-      arg.indexOf(' ') !== -1 ||
-      arg.indexOf('\t') !== -1 ||
-      arg === '';
+      arg === '' ||
+      (arg.indexOf(' ') !== -1 ||
+      arg.indexOf('\t') !== -1) &&
+      ((arg.length > 1) &&
+      (hasLopsidedEnclosingQuote || hasNoEnclosingQuotes));
     if (quote) {
       result += '\"';
     }
@@ -156,4 +175,8 @@ function repeatText(text: string, count: number): string {
     result += text;
   }
   return result;
+}
+
+function xOr(arg1: boolean, arg2: boolean): boolean {
+  return ((arg1 && !arg2) || (!arg1 && arg2));
 }

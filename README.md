@@ -1,7 +1,6 @@
 # node-pty
 
-[![Travis CI build status](https://travis-ci.org/Tyriar/node-pty.svg?branch=master)](https://travis-ci.org/Tyriar/node-pty)
-[![Appveyor build status](https://ci.appveyor.com/api/projects/status/1064dcr2t2r90q4n/branch/master?svg=true)](https://ci.appveyor.com/project/Tyriar/node-pty/branch/master)
+[![Build Status](https://dev.azure.com/vscode/node-pty/_apis/build/status/Microsoft.node-pty)](https://dev.azure.com/vscode/node-pty/_apis/build/status/Microsoft.node-pty?branchName=master)
 
 `forkpty(3)` bindings for node.js. This allows you to fork processes with pseudoterminal file descriptors. It returns a terminal object which allows reads and writes.
 
@@ -16,10 +15,13 @@ This is useful for:
 
 `node-pty` powers many different terminal emulators, including:
 
-- [Microsoft Visual Studio Code](code.visualstudio.com)
+- [Microsoft Visual Studio Code](https://code.visualstudio.com)
 - [Hyper](https://hyper.is/)
 - [Upterm](https://github.com/railsware/upterm)
 - [Script Runner](https://github.com/ioquatix/script-runner) for Atom.
+- [Theia](https://github.com/theia-ide/theia)
+- [FreeMAN](https://github.com/matthew-matvei/freeman) file manager
+- [atom-xterm](https://atom.io/packages/atom-xterm) - Atom plugin for providing terminals inside your Atom workspace.
 
 Do you use node-pty in your application as well? Please open a [Pull Request](https://github.com/Tyriar/node-pty/pulls) to include it here. We would love to have it in our list.
 
@@ -57,9 +59,25 @@ npm install
 npm run tsc
 ```
 
+### Dependencies on Windows
+
+`npm install` requires some tools to be present in the system like Python and C++ compiler. Windows users can easily install them by running the following command in PowerShell as administrator. For more information see https://github.com/felixrieseberg/windows-build-tools:
+
+```sh
+npm install --global --production windows-build-tools
+```
+
 ## Debugging
 
-On Windows, you can show the winpty agent console window by adding the environment variable `WINPTY_SHOW_CONSOLE=1` to the pty's environment. See https://github.com/rprichard/winpty#debugging-winpty for more information.
+[The wiki](https://github.com/Microsoft/node-pty/wiki/Debugging) contains instructions for debugging node-pty.
+
+## Security
+
+All processes launched from node-pty will launch at the same permission level of the parent process. Take care particularly when using node-pty inside a server that's accessible on the internet. We recommend launching the pty inside a container to protect your host machine.
+
+## Thread Safety
+
+Note that node-pty is not thread safe so running it across multiple worker threads in node.js could cause issues.
 
 ## Troubleshooting
 
@@ -75,5 +93,5 @@ This project is forked from [chjj/pty.js](https://github.com/chjj/pty.js) with t
 
 ## License
 
-Copyright (c) 2012-2015, Christopher Jeffrey (MIT License).  
+Copyright (c) 2012-2015, Christopher Jeffrey (MIT License).<br>
 Copyright (c) 2016, Daniel Imms (MIT License).

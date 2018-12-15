@@ -7,7 +7,7 @@ var ptyProcess = pty.spawn(shell, [], {
   name: 'xterm-color',
   cols: 80,
   rows: 30,
-  cwd: process.env.HOME,
+  cwd: __dirname,
   env: process.env
 });
 
@@ -15,10 +15,11 @@ ptyProcess.on('data', function(data) {
   console.log(data);
 });
 
-ptyProcess.write('ls\r');
-ptyProcess.resize(100, 40);
-ptyProcess.write('ls\r');
+ptyProcess.write('start notepad\r');
+ptyProcess.write('npm start\r');
 
+// Kill the tree at the end
 setTimeout(() => {
-  ptyProcess.kill()
-}, 5000);
+  console.log('Killing pty');
+  ptyProcess.kill();
+}, 10000);
