@@ -40,6 +40,7 @@ export class WindowsTerminal extends Terminal {
     const name = opt.name || env.TERM || DEFAULT_NAME;
     const parsedEnv = this._parseEnv(env);
 
+    console.log('parsedEnv', parsedEnv);
     // If the terminal is ready
     this._isReady = false;
 
@@ -47,7 +48,7 @@ export class WindowsTerminal extends Terminal {
     this._deferreds = [];
 
     // Create new termal.
-    this._agent = new WindowsPtyAgent(file, args, parsedEnv, cwd, cols, rows, false);
+    this._agent = new WindowsPtyAgent(file, args, parsedEnv, cwd, cols, rows, false, opt.experimentalUseConpty);
     this._socket = this._agent.outSocket;
 
     // Not available until `ready` event emitted.

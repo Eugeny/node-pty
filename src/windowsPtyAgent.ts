@@ -3,11 +3,15 @@
  * Copyright (c) 2016, Daniel Imms (MIT License).
  */
 
+import * as os from 'os';
 import * as path from 'path';
 import { Socket } from 'net';
 import { ArgvOrCommandLine } from './types';
+import { loadNative } from './utils';
 
-const pty = require(path.join('..', 'build', 'Release', 'pty.node'));
+// TODO: Pull conpty/winpty details into its own interface?
+let conptyNative: any;
+let winptyNative: any;
 
 /**
  * Agent. Internal class.
@@ -26,6 +30,7 @@ export class WindowsPtyAgent {
 
   private _fd: any;
   private _pty: number;
+  private _ptyNative: any;
 
   public get inSocket(): Socket { return this._inSocket; }
   public get outSocket(): Socket { return this._outSocket; }
@@ -40,8 +45,24 @@ export class WindowsPtyAgent {
     cwd: string,
     cols: number,
     rows: number,
-    debug: boolean
+    debug: boolean,
+    private _useConpty: boolean | undefined
   ) {
+    if (this._useConpty === undefined) {
+      this._useConpty = this._getWindowsBuildNumber() >= 17692;
+    }
+    console.log('useConpty?', this._useConpty);
+    if (this._useConpty) {
+      if (!conptyNative) {
+        conptyNative = loadNative('conpty');
+      }
+    } else {
+      if (!winptyNative) {
+        winptyNative = loadNative('pty');
+      }
+    }
+    this._ptyNative = this._useConpty ? conptyNative : winptyNative;
+
     // Sanitize input variable.
     cwd = path.resolve(cwd);
 
@@ -49,10 +70,15 @@ export class WindowsPtyAgent {
     const commandLine = argsToCommandLine(file, args);
 
     // Open pty session.
-    const term = pty.startProcess(file, commandLine, env, cwd, cols, rows, debug);
+    let term;
+    if (this._useConpty) {
+      term = this._ptyNative.startProcess(file, cols, rows, debug, this._generatePipeName());
+    } else {
+      term = this._ptyNative.startProcess(file, commandLine, env, cwd, cols, rows, debug);
+      this._pid = term.pid;
+    }
 
     // Terminal pid.
-    this._pid = term.pid;
     this._innerPid = term.innerPid;
     this._innerPidHandle = term.innerPidHandle;
 
@@ -77,10 +103,20 @@ export class WindowsPtyAgent {
     this._inSocket.setEncoding('utf8');
     this._inSocket.connect(term.conin);
     // TODO: Wait for ready event?
+
+    // TODO: Do we *need* to timeout here or wait for the sockets to connect?
+    //    or can we do this synchronously like this?
+    if (this._useConpty) {
+      console.log('this._pty = ' + this._pty);
+      const connect = this._ptyNative.connect(this._pty, commandLine, cwd, env);
+      console.log('connect.error' + connect.error);
+      this._innerPid = connect.pid;
+    }
   }
 
   public resize(cols: number, rows: number): void {
-    pty.resize(this._pid, cols, rows);
+    // TODO: Guard against invalid pty values
+    this._ptyNative.resize(this._useConpty ? this._pty : this._pid, cols, rows);
   }
 
   public kill(): void {
@@ -88,25 +124,43 @@ export class WindowsPtyAgent {
     this._inSocket.writable = false;
     this._outSocket.readable = false;
     this._outSocket.writable = false;
-    const processList: number[] = pty.getProcessList(this._pid);
     // Tell the agent to kill the pty, this releases handles to the process
-    pty.kill(this._pid, this._innerPidHandle);
-    // Since pty.kill will kill most processes by itself and process IDs can be
-    // reused as soon as all handles to them are dropped, we want to immediately
-    // kill the entire console process list. If we do not force kill all
-    // processes here, node servers in particular seem to become detached and
-    // remain running (see Microsoft/vscode#26807).
-    processList.forEach(pid => {
-      try {
-        process.kill(pid);
-      } catch (e) {
-        // Ignore if process cannot be found (kill ESRCH error)
-      }
-    });
+    if (this._useConpty) {
+      this._ptyNative.kill(this._pty);
+    } else {
+      const processList: number[] = this._ptyNative.getProcessList(this._pid);
+      this._ptyNative.kill(this._pid, this._innerPidHandle);
+      // Since pty.kill will kill most processes by itself and process IDs can be
+      // reused as soon as all handles to them are dropped, we want to immediately
+      // kill the entire console process list. If we do not force kill all
+      // processes here, node servers in particular seem to become detached and
+      // remain running (see Microsoft/vscode#26807).
+      processList.forEach(pid => {
+        try {
+          process.kill(pid);
+        } catch (e) {
+          // Ignore if process cannot be found (kill ESRCH error)
+        }
+      });
+    }
   }
 
   public getExitCode(): number {
-    return pty.getExitCode(this._innerPidHandle);
+    // TODO: Fix for conpty
+    return this._ptyNative.getExitCode(this._innerPidHandle);
+  }
+
+  private _getWindowsBuildNumber(): number {
+    const osVersion = (/(\d+)\.(\d+)\.(\d+)/g).exec(os.release());
+    let buildNumber: number = 0;
+    if (osVersion && osVersion.length === 4) {
+      buildNumber = parseInt(osVersion[3]);
+    }
+    return buildNumber;
+  }
+
+  private _generatePipeName(): string {
+    return `conpty-${Math.random() * 10000000}`;
   }
 }
 
