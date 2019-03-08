@@ -1,6 +1,7 @@
 /**
  * Copyright (c) 2013-2015, Christopher Jeffrey, Peter Sunde (MIT License)
  * Copyright (c) 2016, Daniel Imms (MIT License).
+ * Copyright (c) 2018, Microsoft Corporation (MIT License).
  *
  * pty.cc:
  *   This file is responsible for starting processes
@@ -82,6 +83,33 @@ static NAN_METHOD(PtyGetExitCode) {
   GetExitCodeProcess((HANDLE)info[0]->IntegerValue(), &exitCode);
 
   info.GetReturnValue().Set(Nan::New<v8::Number>(exitCode));
+}
+
+static NAN_METHOD(PtyGetProcessList) {
+  Nan::HandleScope scope;
+
+  if (info.Length() != 1 ||
+      !info[0]->IsNumber()) {
+    Nan::ThrowError("Usage: pty.getProcessList(pid)");
+    return;
+  }
+
+  int pid = info[0]->Int32Value();
+
+  winpty_t *pc = get_pipe_handle(pid);
+  if (pc == nullptr) {
+    info.GetReturnValue().Set(Nan::New<v8::Array>(0));
+    return;
+  }
+  int processList[64];
+  const int processCount = 64;
+  int actualCount = winpty_get_console_process_list(pc, processList, processCount, nullptr);
+
+  v8::Local<v8::Array> result = Nan::New<v8::Array>(actualCount);
+  for (uint32_t i = 0; i < actualCount; i++) {
+    Nan::Set(result, i, Nan::New<v8::Number>(processList[i]));
+  }
+  info.GetReturnValue().Set(result);
 }
 
 static NAN_METHOD(PtyStartProcess) {
@@ -257,8 +285,11 @@ static NAN_METHOD(PtyKill) {
   HANDLE innerPidHandle = (HANDLE)info[1]->Int32Value();
 
   winpty_t *pc = get_pipe_handle(handle);
+  if (pc == nullptr) {
+    Nan::ThrowError("Pty seems to have been killed already");
+    return;
+  }
 
-  assert(pc != nullptr);
   assert(remove_pipe_handle(handle));
   CloseHandle(innerPidHandle);
 
@@ -275,6 +306,7 @@ extern "C" void init(v8::Handle<v8::Object> target) {
   Nan::SetMethod(target, "resize", PtyResize);
   Nan::SetMethod(target, "kill", PtyKill);
   Nan::SetMethod(target, "getExitCode", PtyGetExitCode);
+  Nan::SetMethod(target, "getProcessList", PtyGetProcessList);
 };
 
 NODE_MODULE(pty, init);

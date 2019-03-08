@@ -1,26 +1,20 @@
 /**
  * Copyright (c) 2012-2015, Christopher Jeffrey (MIT License)
  * Copyright (c) 2016, Daniel Imms (MIT License).
+ * Copyright (c) 2018, Microsoft Corporation (MIT License).
  */
 
 import * as net from 'net';
-import * as path from 'path';
-import * as tty from 'tty';
 import { Terminal, DEFAULT_COLS, DEFAULT_ROWS } from './terminal';
-import { ProcessEnv, IPtyForkOptions, IPtyOpenOptions } from './interfaces';
+import { IProcessEnv, IPtyForkOptions, IPtyOpenOptions } from './interfaces';
 import { ArgvOrCommandLine } from './types';
-import { assign } from './utils';
+import { assign, loadNative } from './utils';
 
-declare type NativePty = {
-  master: number;
-  slave: number;
-  pty: string;
-};
-
-const pty = require(path.join('..', 'build', 'Release', 'pty.node'));
+const pty: IUnixNative = loadNative('pty');
 
 const DEFAULT_FILE = 'sh';
 const DEFAULT_NAME = 'xterm';
+const DESTROY_SOCKET_TIMEOUT_MS = 200;
 
 export class UnixTerminal extends Terminal {
   protected _fd: number;
@@ -70,13 +64,28 @@ export class UnixTerminal extends Terminal {
 
     const encoding = (opt.encoding === undefined ? 'utf8' : opt.encoding);
 
-    const onexit = (code: any, signal: any) => {
+    const onexit = (code: number, signal: number) => {
       // XXX Sometimes a data event is emitted after exit. Wait til socket is
       // destroyed.
       if (!this._emittedClose) {
-        if (this._boundClose) return;
+        if (this._boundClose) {
+          return;
+        }
         this._boundClose = true;
-        this.once('close', () => this.emit('exit', code, signal));
+        // From macOS High Sierra 10.13.2 sometimes the socket never gets
+        // closed. A timeout is applied here to avoid the terminal never being
+        // destroyed when this occurs.
+        let timeout = setTimeout(() => {
+          timeout = null;
+          // Destroying the socket now will cause the close event to fire
+          this._socket.destroy();
+        }, DESTROY_SOCKET_TIMEOUT_MS);
+        this.once('close', () => {
+          if (timeout !== null) {
+            clearTimeout(timeout);
+          }
+          this.emit('exit', code, signal);
+        });
         return;
       }
       this.emit('exit', code, signal);
@@ -163,7 +172,7 @@ export class UnixTerminal extends Terminal {
     const encoding = opt.encoding ? 'utf8' : opt.encoding;
 
     // open
-    const term: NativePty = pty.open(cols, rows);
+    const term: IUnixOpenProcess = pty.open(cols, rows);
 
     self._master = new PipeSocket(<number>term.master);
     self._master.setEncoding(encoding);
@@ -196,7 +205,7 @@ export class UnixTerminal extends Terminal {
     });
 
     return self;
-  };
+  }
 
   public write(data: string): void {
     this._socket.write(data);
@@ -235,7 +244,7 @@ export class UnixTerminal extends Terminal {
     pty.resize(this._fd, cols, rows);
   }
 
-  private _sanitizeEnv(env: ProcessEnv): void {
+  private _sanitizeEnv(env: IProcessEnv): void {
       // Make sure we didn't start our server from inside tmux.
       delete env['TMUX'];
       delete env['TMUX_PANE'];
