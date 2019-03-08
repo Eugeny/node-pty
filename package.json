@@ -1,5 +1,5 @@
 {
-  "name": "node-pty-tmp",
+  "name": "@terminus-term/node-pty",
   "description": "A Temporary Fork of node-pty",
   "author": {
     "name": "Microsoft Corporation"
