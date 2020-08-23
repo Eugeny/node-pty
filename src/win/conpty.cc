@@ -411,6 +411,11 @@ static NAN_METHOD(PtyResize) {
   return info.GetReturnValue().SetUndefined();
 }
 
+DWORD WINAPI Closer(LPVOID lpParam) {
+    CloseHandle((HANDLE)lpParam);
+    return 0;
+}
+
 static NAN_METHOD(PtyKill) {
   Nan::HandleScope scope;
 
@@ -435,7 +440,7 @@ static NAN_METHOD(PtyKill) {
     }
   }
 
-  CloseHandle(handle->hShell);
+  CreateThread(NULL, 0, Closer, (LPVOID)handle->hShell, 0, NULL);
 
   return info.GetReturnValue().SetUndefined();
 }
