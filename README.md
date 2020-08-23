@@ -11,22 +11,9 @@ This is useful for:
 
 `node-pty` supports Linux, macOS and Windows. Windows support is possible by utilizing the [Windows conpty API](https://blogs.msdn.microsoft.com/commandline/2018/08/02/windows-command-line-introducing-the-windows-pseudo-console-conpty/) on Windows 1809+ and the [winpty](https://github.com/rprichard/winpty) library in older version.
 
-## Real-world Uses
+## API
 
-`node-pty` powers many different terminal emulators, including:
-
-- [Microsoft Visual Studio Code](https://code.visualstudio.com)
-- [Hyper](https://hyper.is/)
-- [Upterm](https://github.com/railsware/upterm)
-- [Script Runner](https://github.com/ioquatix/script-runner) for Atom.
-- [Theia](https://github.com/theia-ide/theia)
-- [FreeMAN](https://github.com/matthew-matvei/freeman) file manager
-- [atom-xterm](https://atom.io/packages/atom-xterm) - Atom plugin for providing terminals inside your Atom workspace.
-- [Termination](https://atom.io/packages/termination) - Another Atom plugin that provides terminals inside your Atom workspace.
-- [electerm](https://github.com/electerm/electerm) Terminal/ssh/sftp client(linux, mac, win).
-- [Extraterm](http://extraterm.org/)
-
-Do you use node-pty in your application as well? Please open a [Pull Request](https://github.com/Tyriar/node-pty/pulls) to include it here. We would love to have it in our list.
+The full API for node-pty is contained within the [TypeScript declaration file](https://github.com/microsoft/node-pty/blob/master/typings/node-pty.d.ts), use the branch/tag picker in GitHub (`w`) to navigate to the correct version of the API.
 
 ## Example Usage
 
@@ -53,13 +40,36 @@ ptyProcess.resize(100, 40);
 ptyProcess.write('ls\r');
 ```
 
+## Real-world Uses
+
+`node-pty` powers many different terminal emulators, including:
+
+- [Microsoft Visual Studio Code](https://code.visualstudio.com)
+- [Hyper](https://hyper.is/)
+- [Upterm](https://github.com/railsware/upterm)
+- [Script Runner](https://github.com/ioquatix/script-runner) for Atom.
+- [Theia](https://github.com/theia-ide/theia)
+- [FreeMAN](https://github.com/matthew-matvei/freeman) file manager
+- [terminus](https://atom.io/packages/terminus) - An Atom plugin for providing terminals inside your Atom workspace.
+- [x-terminal](https://atom.io/packages/x-terminal) - Also an Atom plugin that provides terminals inside your Atom workspace.
+- [Termination](https://atom.io/packages/termination) - Also an Atom plugin that provides terminals inside your Atom workspace.
+- [atom-xterm](https://atom.io/packages/atom-xterm) - Also an Atom plugin that provides terminals inside your Atom workspace.
+- [electerm](https://github.com/electerm/electerm) Terminal/SSH/SFTP client(Linux, macOS, Windows).
+- [Extraterm](http://extraterm.org/)
+- [Wetty](https://github.com/krishnasrinivas/wetty) Browser based Terminal over HTTP and HTTPS
+- [nomad](https://github.com/lukebarnard1/nomad-term)
+- [DockerStacks](https://github.com/sfx101/docker-stacks) Local LAMP/LEMP stack using Docker
+- [TeleType](https://github.com/akshaykmr/TeleType): cli tool that allows you to share your terminal online conveniently. Show off mad cli-fu, help a colleague, teach, or troubleshoot.
+
+Do you use node-pty in your application as well? Please open a [Pull Request](https://github.com/Tyriar/node-pty/pulls) to include it here. We would love to have it in our list.
+
 ## Building
 
 ```bash
 # Install dependencies and build C++
 npm install
 # Compile TypeScript -> JavaScript
-npm run tsc
+npm run build
 ```
 
 ## Dependencies
@@ -73,6 +83,10 @@ sudo apt install -y make python build-essential
 The following are also needed:
 
 - Node.JS 10+
+
+### macOS
+
+Xcode is needed to compile the sources, this can be installed from the App Store.
 
 ### Windows
 
@@ -98,6 +112,29 @@ All processes launched from node-pty will launch at the same permission level of
 ## Thread Safety
 
 Note that node-pty is not thread safe so running it across multiple worker threads in node.js could cause issues.
+
+## Flow Control
+
+Automatic flow control can be enabled by either providing `handleFlowControl = true` in the constructor options or setting it later on:
+
+```js
+const PAUSE = '\x13';   // XOFF
+const RESUME = '\x11';  // XON
+
+const ptyProcess = pty.spawn(shell, [], {handleFlowControl: true});
+
+// flow control in action
+ptyProcess.write(PAUSE);  // pty will block and pause the child program
+...
+ptyProcess.write(RESUME); // pty will enter flow mode and resume the child program
+
+// temporarily disable/re-enable flow control
+ptyProcess.handleFlowControl = false;
+...
+ptyProcess.handleFlowControl = true;
+```
+
+By default `PAUSE` and `RESUME` are XON/XOFF control codes (as shown above). To avoid conflicts in environments that use these control codes for different purposes the messages can be customized as `flowControlPause: string` and `flowControlResume: string` in the constructor options. `PAUSE` and `RESUME` are not passed to the underlying pseudoterminal if flow control is enabled.
 
 ## Troubleshooting
 

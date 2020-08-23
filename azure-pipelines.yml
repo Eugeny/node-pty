@@ -7,10 +7,16 @@ jobs:
 - job: Linux
   pool:
     vmImage: 'ubuntu-16.04'
+  strategy:
+    matrix:
+      node_10_x:
+        node_version: 10.x
+      node_12_x:
+        node_version: 12.x
   steps:
   - task: NodeTool@0
     inputs:
-      versionSpec: '8.x'
+      versionSpec: $(node_version)
     displayName: 'Install Node.js'
   - script: |
       npm i
@@ -24,11 +30,17 @@ jobs:
 
 - job: macOS
   pool:
-    vmImage: 'xcode9-macos10.13'
+    vmImage: 'macOS-10.15'
+  strategy:
+    matrix:
+      node_10_x:
+        node_version: 10.x
+      node_12_x:
+        node_version: 12.x
   steps:
   - task: NodeTool@0
     inputs:
-      versionSpec: '8.x'
+      versionSpec: $(node_version)
     displayName: 'Install Node.js'
   - script: |
       npm i
@@ -43,10 +55,16 @@ jobs:
 - job: Windows
   pool:
     vmImage: 'vs2017-win2016'
+  strategy:
+    matrix:
+      node_10_x:
+        node_version: 10.x
+      node_12_x:
+        node_version: 12.x
   steps:
   - task: NodeTool@0
     inputs:
-      versionSpec: '8.x'
+      versionSpec: $(node_version)
     displayName: 'Install Node.js'
   - script: |
       npm i

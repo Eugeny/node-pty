@@ -12,8 +12,14 @@ import { assign } from './utils';
 let pty: IUnixNative;
 try {
   pty = require('../build/Release/pty.node');
-} catch {
-  pty = require('../build/Debug/pty.node');
+} catch (outerError) {
+  try {
+    pty = require('../build/Debug/pty.node');
+  } catch (innerError) {
+    console.error('innerError', innerError);
+    // Re-throw the exception from the Release require if the Debug require fails as well
+    throw outerError;
+  }
 }
 
 const DEFAULT_FILE = 'sh';
@@ -62,13 +68,14 @@ export class UnixTerminal extends Terminal {
     }
 
     const cwd = opt.cwd || process.cwd();
+    env.PWD = cwd;
     const name = opt.name || env.TERM || DEFAULT_NAME;
     env.TERM = name;
     const parsedEnv = this._parseEnv(env);
 
     const encoding = (opt.encoding === undefined ? 'utf8' : opt.encoding);
 
-    const onexit = (code: number, signal: number) => {
+    const onexit = (code: number, signal: number): void => {
       // XXX Sometimes a data event is emitted after exit. Wait til socket is
       // destroyed.
       if (!this._emittedClose) {
@@ -158,6 +165,10 @@ export class UnixTerminal extends Terminal {
     this._forwardEvents();
   }
 
+  protected _write(data: string): void {
+    this._socket.write(data);
+  }
+
   /**
    * openpty
    */
@@ -175,17 +186,21 @@ export class UnixTerminal extends Terminal {
 
     const cols = opt.cols || DEFAULT_COLS;
     const rows = opt.rows || DEFAULT_ROWS;
-    const encoding = opt.encoding ? 'utf8' : opt.encoding;
+    const encoding = (opt.encoding === undefined ? 'utf8' : opt.encoding);
 
     // open
     const term: IUnixOpenProcess = pty.open(cols, rows);
 
     self._master = new PipeSocket(<number>term.master);
-    self._master.setEncoding(encoding);
+    if (encoding !== null) {
+      self._master.setEncoding(encoding);
+    }
     self._master.resume();
 
     self._slave = new PipeSocket(term.slave);
-    self._slave.setEncoding(encoding);
+    if (encoding !== null) {
+      self._slave.setEncoding(encoding);
+    }
     self._slave.resume();
 
     self._socket = self._master;
@@ -211,10 +226,6 @@ export class UnixTerminal extends Terminal {
     });
 
     return self;
-  }
-
-  public write(data: string): void {
-    this._socket.write(data);
   }
 
   public destroy(): void {
@@ -247,26 +258,29 @@ export class UnixTerminal extends Terminal {
    */
 
   public resize(cols: number, rows: number): void {
+    if (cols <= 0 || rows <= 0 || isNaN(cols) || isNaN(rows) || cols === Infinity || rows === Infinity) {
+      throw new Error('resizing must be done using positive cols and rows');
+    }
     pty.resize(this._fd, cols, rows);
     this._cols = cols;
     this._rows = rows;
   }
 
   private _sanitizeEnv(env: IProcessEnv): void {
-      // Make sure we didn't start our server from inside tmux.
-      delete env['TMUX'];
-      delete env['TMUX_PANE'];
+    // Make sure we didn't start our server from inside tmux.
+    delete env['TMUX'];
+    delete env['TMUX_PANE'];
 
-      // Make sure we didn't start our server from inside screen.
-      // http://web.mit.edu/gnu/doc/html/screen_20.html
-      delete env['STY'];
-      delete env['WINDOW'];
+    // Make sure we didn't start our server from inside screen.
+    // http://web.mit.edu/gnu/doc/html/screen_20.html
+    delete env['STY'];
+    delete env['WINDOW'];
 
-      // Delete some variables that might confuse our terminal.
-      delete env['WINDOWID'];
-      delete env['TERMCAP'];
-      delete env['COLUMNS'];
-      delete env['LINES'];
+    // Delete some variables that might confuse our terminal.
+    delete env['WINDOWID'];
+    delete env['TERMCAP'];
+    delete env['COLUMNS'];
+    delete env['LINES'];
   }
 }
 
@@ -277,9 +291,9 @@ export class UnixTerminal extends Terminal {
  */
 class PipeSocket extends net.Socket {
   constructor(fd: number) {
-    const { Pipe, constants } = (<any>process).binding('pipe_wrap'); // tslint:disable-line
+    const pipeWrap = (<any>process).binding('pipe_wrap'); // tslint:disable-line
     // @types/node has fd as string? https://github.com/DefinitelyTyped/DefinitelyTyped/pull/18275
-    const handle = new Pipe(constants.SOCKET);
+    const handle = new pipeWrap.Pipe(pipeWrap.constants.SOCKET);
     handle.open(fd);
     super(<any>{ handle });
   }

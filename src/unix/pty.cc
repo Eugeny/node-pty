@@ -28,21 +28,14 @@
 #include <sys/ioctl.h>
 #include <sys/wait.h>
 #include <fcntl.h>
+#include <signal.h>
 
 /* forkpty */
 /* http://www.gnu.org/software/gnulib/manual/html_node/forkpty.html */
 #if defined(__GLIBC__) || defined(__CYGWIN__)
 #include <pty.h>
 #elif defined(__APPLE__) || defined(__OpenBSD__) || defined(__NetBSD__)
-/**
- * From node v0.10.28 (at least?) there is also a "util.h" in node/src, which
- * would confuse the compiler when looking for "util.h".
- */
-#if NODE_VERSION_AT_LEAST(0, 10, 28)
-#include <../include/util.h>
-#else
 #include <util.h>
-#endif
 #elif defined(__FreeBSD__)
 #include <libutil.h>
 #elif defined(__sun)
@@ -52,6 +45,14 @@
 #endif
 
 #include <termios.h> /* tcgetattr, tty_ioctl */
+
+/* Some platforms name VWERASE and VDISCARD differently */
+#if !defined(VWERASE) && defined(VWERSE)
+#define VWERASE	VWERSE
+#endif
+#if !defined(VDISCARD) && defined(VDISCRD)
+#define VDISCARD	VDISCRD
+#endif
 
 /* environ for execvpe */
 /* node/src/node_child_process.cc */
@@ -69,6 +70,11 @@ extern char **environ;
 #elif defined(__APPLE__)
 #include <sys/sysctl.h>
 #include <libproc.h>
+#endif
+
+/* NSIG - macro for highest signal + 1, should be defined */
+#ifndef NSIG
+#define NSIG 32
 #endif
 
 /**
@@ -120,11 +126,7 @@ static void
 pty_waitpid(void *);
 
 static void
-#if NODE_VERSION_AT_LEAST(0, 11, 0)
 pty_after_waitpid(uv_async_t *);
-#else
-pty_after_waitpid(uv_async_t *, int);
-#endif
 
 static void
 pty_after_close(uv_handle_t *);
@@ -146,9 +148,6 @@ NAN_METHOD(PtyFork) {
     return Nan::ThrowError(
         "Usage: pty.fork(file, args, env, cwd, cols, rows, uid, gid, utf8, onexit)");
   }
-
-  // Make sure the process still listens to SIGINT
-  signal(SIGINT, SIG_DFL);
 
   // file
   Nan::Utf8String file(info[0]);
@@ -192,7 +191,7 @@ NAN_METHOD(PtyFork) {
   struct termios t = termios();
   struct termios *term = &t;
   term->c_iflag = ICRNL | IXON | IXANY | IMAXBEL | BRKINT;
-  if (info[8]->BooleanValue(Nan::GetCurrentContext()).FromJust()) {
+  if (Nan::To<bool>(info[8]).FromJust()) {
 #if defined(IUTF8)
     term->c_iflag |= IUTF8;
 #endif
@@ -232,7 +231,30 @@ NAN_METHOD(PtyFork) {
 
   // fork the pty
   int master = -1;
+
+  sigset_t newmask, oldmask;
+  struct sigaction sig_action;
+
+  // temporarily block all signals
+  // this is needed due to a race condition in openpty
+  // and to avoid running signal handlers in the child
+  // before exec* happened
+  sigfillset(&newmask);
+  pthread_sigmask(SIG_SETMASK, &newmask, &oldmask);
+
   pid_t pid = pty_forkpty(&master, nullptr, term, &winp);
+
+  if (!pid) {
+    // remove all signal handler from child
+    sig_action.sa_handler = SIG_DFL;
+    sig_action.sa_flags = 0;
+    sigemptyset(&sig_action.sa_mask);
+    for (int i = 0 ; i < NSIG ; i++) {    // NSIG is a macro for all signals + 1
+      sigaction(i, &sig_action, NULL);
+    }
+  }
+  // reenable signals
+  pthread_sigmask(SIG_SETMASK, &oldmask, NULL);
 
   if (pid) {
     for (i = 0; i < argl; i++) free(argv[i]);
@@ -476,11 +498,7 @@ pty_waitpid(void *data) {
  */
 
 static void
-#if NODE_VERSION_AT_LEAST(0, 11, 0)
 pty_after_waitpid(uv_async_t *async) {
-#else
-pty_after_waitpid(uv_async_t *async, int unhelpful) {
-#endif
   Nan::HandleScope scope;
   pty_baton *baton = static_cast<pty_baton*>(async->data);
 
@@ -492,7 +510,8 @@ pty_after_waitpid(uv_async_t *async, int unhelpful) {
   v8::Local<v8::Function> cb = Nan::New<v8::Function>(baton->cb);
   baton->cb.Reset();
   memset(&baton->cb, -1, sizeof(baton->cb));
-  Nan::Callback(cb).Call(Nan::GetCurrentContext()->Global(), 2, argv);
+  Nan::AsyncResource resource("pty_after_waitpid");
+  resource.runInAsyncScope(Nan::GetCurrentContext()->Global(), cb, 2, argv);
 
   uv_close((uv_handle_t *)async, pty_after_close);
 }
@@ -590,7 +609,7 @@ pty_getproc(int fd, char *tty) {
     return NULL;
   }
 
-  if (*kp.kp_proc.p_comm == '\0') {
+  if (size != (sizeof kp) || *kp.kp_proc.p_comm == '\0') {
     return NULL;
   }
 
@@ -666,13 +685,12 @@ pty_forkpty(int *amaster,
   pid_t pid = fork();
 
   switch (pid) {
-    case -1:
+    case -1:  // error in fork, we are still in parent
       close(master);
       close(slave);
       return -1;
-    case 0:
+    case 0:  // we are in the child process
       close(master);
-
       setsid();
 
 #if defined(TIOCSCTTY)
@@ -689,7 +707,7 @@ pty_forkpty(int *amaster,
       if (slave > 2) close(slave);
 
       return 0;
-    default:
+    default:  // we are in the parent process
       close(slave);
       return pid;
   }
@@ -699,6 +717,7 @@ pty_forkpty(int *amaster,
   return forkpty(amaster, name, (termios *)termp, (winsize *)winp);
 #endif
 }
+
 
 /**
  * Init
