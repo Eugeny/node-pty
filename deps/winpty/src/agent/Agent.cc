@@ -27,6 +27,7 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include <algorithm>
 #include <string>
 #include <utility>
 #include <vector>
@@ -435,8 +436,12 @@ void Agent::handleGetConsoleProcessListPacket(ReadBuffer &packet)
 
     auto processList = std::vector<DWORD>(64);
     auto processCount = GetConsoleProcessList(&processList[0], processList.size());
-    if (processList.size() < processCount) {
-        processList.resize(processCount);
+
+    // The process list can change while we're trying to read it
+    while (processList.size() < processCount) {
+        // Multiplying by two caps the number of iterations
+        const auto newSize = std::max<DWORD>(processList.size() * 2, processCount);
+        processList.resize(newSize);
         processCount = GetConsoleProcessList(&processList[0], processList.size());
     }
 
@@ -597,9 +602,11 @@ void Agent::syncConsoleTitle()
 {
     std::wstring newTitle = m_console.title();
     if (newTitle != m_currentTitle) {
-        std::string command = std::string("\x1b]0;") +
-                utf8FromWide(newTitle) + "\x07";
-        m_conoutPipe->write(command.c_str());
+        if (!m_plainMode && !m_conoutPipe->isClosed()) {
+            std::string command = std::string("\x1b]0;") +
+                    utf8FromWide(newTitle) + "\x07";
+            m_conoutPipe->write(command.c_str());
+        }
         m_currentTitle = newTitle;
     }
 }
